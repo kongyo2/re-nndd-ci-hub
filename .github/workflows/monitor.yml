@@ -66,16 +66,28 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Checkout mizchi/similarity
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: mizchi/similarity
+          path: similarity
+          persist-credentials: false
+
       - name: Setup Rust toolchain
         if: steps.latest.outputs.changed == 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install similarity-ts (cached)
+      - name: Cache cargo build for similarity
         if: steps.latest.outputs.changed == 'true'
-        uses: baptiste0928/cargo-install@v3
+        uses: Swatinem/rust-cache@v2
         with:
-          crate: similarity-ts
-          locked: true
+          workspaces: similarity
+          key: similarity-ts
+
+      - name: Build & install similarity-ts from source
+        if: steps.latest.outputs.changed == 'true'
+        run: cargo install --path similarity/crates/similarity-ts --locked --force
 
       - name: Run Knip + similarity-ts
         if: steps.latest.outputs.changed == 'true'

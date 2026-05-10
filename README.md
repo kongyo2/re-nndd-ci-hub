@@ -38,8 +38,11 @@
 - **Knip**: `npx --yes knip --reporter markdown --no-progress --no-exit-code`
   ([CI ガイド](https://knip.dev/guides/using-knip-in-ci) 準拠)。設定が無い
   リポジトリでも動くよう `--no-exit-code` で常に成果物を得ます。
-- **similarity-ts**: `cargo install` を `baptiste0928/cargo-install@v3` で
-  キャッシュ。`src/` があればそこ、無ければリポジトリ全体を
+- **similarity-ts**: 上流の [`mizchi/similarity`](https://github.com/mizchi/similarity)
+  を `actions/checkout` で `similarity/` 配下にクローンし、
+  `cargo install --path similarity/crates/similarity-ts --locked --force`
+  でソースからビルドします (`Swatinem/rust-cache@v2` で `target/` を
+  キャッシュ)。`src/` があればそこ、無ければリポジトリ全体を
   `--threshold 0.85 --min-lines 5 --extensions ts,tsx,js,jsx` でスキャン。
 - 結果は `reports/report.md` にまとめ、Actions のアーティファクトと
   Discord 添付ファイルの両方に出します。
