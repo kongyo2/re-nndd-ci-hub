@@ -43,10 +43,17 @@
   `actions/checkout` で `similarity/` 配下にクローンし、
   `cargo install --path similarity/crates/similarity-{ts,rs}` でソースから
   ビルドします (`Swatinem/rust-cache@v2` で `target/` をキャッシュ)。
-  Re-NNDD は Tauri 2 + SvelteKit 構成なので、フロントの `src/` を
-  `similarity-ts --extensions ts,tsx,mts,cts` (Svelte は非対応)、
-  Rust バックエンドの `src-tauri/src/` を `similarity-rs` でそれぞれ
-  解析します (どちらも `--threshold 0.85 --min-lines 5`)。
+  実行内容は上流リポジトリ同梱の
+  [`check-similarity-ts`](https://github.com/mizchi/similarity/blob/main/.claude/skills/check-similarity-ts/SKILL.md) /
+  [`check-similarity-rs`](https://github.com/mizchi/similarity/blob/main/.claude/skills/check-similarity-rs/SKILL.md)
+  skill に準拠し、各言語につき 2 パスで走らせます:
+  - `similarity-ts src --threshold 0.85 --min-tokens 25 --print` (関数)
+  - `similarity-ts src --threshold 0.85 --experimental-types --print` (型/interface)
+  - `similarity-rs src-tauri/src --threshold 0.85 --min-lines 5 --print` (関数)
+  - `similarity-rs src-tauri/src --threshold 0.85 --experimental-types --print` (struct/enum)
+
+  Re-NNDD は Tauri 2 + SvelteKit 構成のため `.svelte` は両ツール非対応 →
+  Knip 側 (svelte plugin auto-detect) でカバー。
 - 結果は `reports/report.md` にまとめ、Actions のアーティファクトと
   Discord 添付ファイルの両方に出します。
 

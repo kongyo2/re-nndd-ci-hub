@@ -54,11 +54,12 @@ echo "::endgroup::"
 
 # --- similarity-ts (frontend / SvelteKit src/) ---------------------------
 # Re-NNDD's frontend lives in `src/` and uses .ts + .svelte. similarity-ts
-# does not parse .svelte, so we scope to the TS-flavored extensions.
+# does not parse .svelte, so the default extensions (ts/tsx/mts/cts) are
+# what we want — no need to override --extensions.
+# Skill ref: mizchi/similarity .claude/skills/check-similarity-ts/SKILL.md
 echo "::group::similarity-ts"
 ts_dir=""
 if   [[ -d src ]]; then ts_dir="src"
-elif [[ -d packages || -d apps ]]; then ts_dir="."
 elif compgen -G "*.ts" >/dev/null || compgen -G "*.tsx" >/dev/null; then ts_dir="."
 fi
 {
@@ -67,21 +68,33 @@ fi
   if [[ -z "$ts_dir" ]]; then
     echo "_No TypeScript sources detected; skipping._"
   else
-    echo "Scanned: \`$ts_dir\` (threshold 0.85, min-lines 5, extensions ts,tsx,mts,cts)"
+    echo "Scanned: \`$ts_dir\`"
     echo
+    echo "### Functions ( --threshold 0.85 --min-tokens 25 )"
     echo '```'
     similarity-ts "$ts_dir" \
       --threshold 0.85 \
-      --min-lines 5 \
-      --extensions ts,tsx,mts,cts \
+      --min-tokens 25 \
+      --print \
       2>&1 \
-      || echo "(similarity-ts failed)"
+      || echo "(similarity-ts functions pass failed)"
+    echo '```'
+    echo
+    echo "### Types / Interfaces ( --experimental-types )"
+    echo '```'
+    similarity-ts "$ts_dir" \
+      --threshold 0.85 \
+      --experimental-types \
+      --print \
+      2>&1 \
+      || echo "(similarity-ts types pass failed)"
     echo '```'
   fi
 } > "$sim_md"
 echo "::endgroup::"
 
 # --- similarity-rs (Tauri backend / src-tauri/) --------------------------
+# Skill ref: mizchi/similarity .claude/skills/check-similarity-rs/SKILL.md
 sim_rs_md="$abs_reports/similarity-rs.md"
 echo "::group::similarity-rs"
 rs_dir=""
@@ -95,14 +108,26 @@ fi
   if [[ -z "$rs_dir" ]]; then
     echo "_No Rust sources detected; skipping._"
   else
-    echo "Scanned: \`$rs_dir\` (threshold 0.85, min-lines 5)"
+    echo "Scanned: \`$rs_dir\`"
     echo
+    echo "### Functions ( --threshold 0.85 --min-lines 5 )"
     echo '```'
     similarity-rs "$rs_dir" \
       --threshold 0.85 \
       --min-lines 5 \
+      --print \
       2>&1 \
-      || echo "(similarity-rs failed)"
+      || echo "(similarity-rs functions pass failed)"
+    echo '```'
+    echo
+    echo "### Structs / Enums ( --experimental-types )"
+    echo '```'
+    similarity-rs "$rs_dir" \
+      --threshold 0.85 \
+      --experimental-types \
+      --print \
+      2>&1 \
+      || echo "(similarity-rs types pass failed)"
     echo '```'
   fi
 } > "$sim_rs_md"
