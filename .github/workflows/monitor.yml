@@ -1,0 +1,114 @@
+name: Monitor Re-NNDD
+
+on:
+  schedule:
+    # GitHub Actions のスケジュールはベストエフォートで実行されます。
+    # 10 分ごとに新規コミットを polling します。
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Specific commit SHA to analyze (optional; default: latest on default branch)'
+        required: false
+        default: ''
+      force:
+        description: 'Run even if SHA is unchanged'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monitor-renndd
+  cancel-in-progress: false
+
+env:
+  TARGET_REPO: abeshinzo78/Re-NNDD
+  STATE_FILE: state/last_sha.txt
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hub repo
+        uses: actions/checkout@v4
+
+      - name: Resolve latest commit on target
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
+        run: bash scripts/check_new_commit.sh
+
+      - name: Skip when no new commit
+        if: steps.latest.outputs.changed != 'true'
+        run: echo "No new commits since ${{ steps.latest.outputs.sha }}; nothing to do."
+
+      - name: Checkout target repo
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPO }}
+          ref: ${{ steps.latest.outputs.sha }}
+          path: target
+
+      - name: Setup Node
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust toolchain
+        if: steps.latest.outputs.changed == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install similarity-ts (cached)
+        if: steps.latest.outputs.changed == 'true'
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: similarity-ts
+          locked: true
+
+      - name: Run Knip + similarity-ts
+        if: steps.latest.outputs.changed == 'true'
+        env:
+          TARGET_DIR: target
+          COMMIT_SHA: ${{ steps.latest.outputs.sha }}
+          COMMIT_SHORT: ${{ steps.latest.outputs.short_sha }}
+          COMMIT_MSG: ${{ steps.latest.outputs.message }}
+          COMMIT_AUTHOR: ${{ steps.latest.outputs.author }}
+          COMMIT_URL: ${{ steps.latest.outputs.url }}
+        run: bash scripts/run_analysis.sh
+
+      - name: Upload report as artifact
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ steps.latest.outputs.short_sha }}
+          path: reports/
+
+      - name: Notify Discord
+        if: steps.latest.outputs.changed == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          COMMIT_SHA: ${{ steps.latest.outputs.sha }}
+          COMMIT_SHORT: ${{ steps.latest.outputs.short_sha }}
+          COMMIT_MSG: ${{ steps.latest.outputs.message }}
+          COMMIT_AUTHOR: ${{ steps.latest.outputs.author }}
+          COMMIT_URL: ${{ steps.latest.outputs.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/notify_discord.sh
+
+      - name: Persist last seen SHA
+        if: steps.latest.outputs.changed == 'true'
+        run: |
+          echo "${{ steps.latest.outputs.sha }}" > "$STATE_FILE"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$STATE_FILE"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(state): bump last seen SHA to ${{ steps.latest.outputs.short_sha }}"
+            git push
+          fi
