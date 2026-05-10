@@ -33,6 +33,11 @@ jobs:
     steps:
       - name: Checkout hub repo
         uses: actions/checkout@v4
+        with:
+          # Do not leave a writable token in the workspace; an untrusted
+          # commit on the target repo (loaded by knip's dynamic config)
+          # could otherwise read it and push to this repository.
+          persist-credentials: false
 
       - name: Resolve latest commit on target
         id: latest
@@ -53,6 +58,7 @@ jobs:
           repository: ${{ env.TARGET_REPO }}
           ref: ${{ steps.latest.outputs.sha }}
           path: target
+          persist-credentials: false
 
       - name: Setup Node
         if: steps.latest.outputs.changed == 'true'
@@ -102,13 +108,16 @@ jobs:
         run: bash scripts/notify_discord.sh
 
       - name: Persist last seen SHA
-        if: steps.latest.outputs.changed == 'true'
-        run: |
-          echo "${{ steps.latest.outputs.sha }}" > "$STATE_FILE"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$STATE_FILE"
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(state): bump last seen SHA to ${{ steps.latest.outputs.short_sha }}"
-            git push
-          fi
+        # Do NOT advance state when a specific SHA was supplied via
+        # workflow_dispatch — that would rewind the cursor and cause
+        # duplicate notifications for already-processed commits.
+        if: >-
+          steps.latest.outputs.changed == 'true' &&
+          (github.event_name != 'workflow_dispatch' || github.event.inputs.sha == '')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          NEW_SHA: ${{ steps.latest.outputs.sha }}
+          SHORT_SHA: ${{ steps.latest.outputs.short_sha }}
+        run: bash scripts/persist_state.sh

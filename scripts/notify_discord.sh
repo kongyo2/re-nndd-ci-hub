@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Send a Discord webhook with an embed summary and the full report
 # attached as a Markdown file (multipart/form-data).
-set -uo pipefail
+set -euo pipefail
 
 : "${DISCORD_WEBHOOK_URL:?DISCORD_WEBHOOK_URL is required}"
 
