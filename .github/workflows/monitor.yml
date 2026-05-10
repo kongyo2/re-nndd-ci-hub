@@ -1,0 +1,140 @@
+name: Monitor Re-NNDD
+
+on:
+  schedule:
+    # GitHub Actions のスケジュールはベストエフォートで実行されます。
+    # 10 分ごとに新規コミットを polling します。
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Specific commit SHA to analyze (optional; default: latest on default branch)'
+        required: false
+        default: ''
+      force:
+        description: 'Run even if SHA is unchanged'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monitor-renndd
+  cancel-in-progress: false
+
+env:
+  TARGET_REPO: abeshinzo78/Re-NNDD
+  STATE_FILE: state/last_sha.txt
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hub repo
+        uses: actions/checkout@v4
+        with:
+          # Do not leave a writable token in the workspace; an untrusted
+          # commit on the target repo (loaded by knip's dynamic config)
+          # could otherwise read it and push to this repository.
+          persist-credentials: false
+
+      - name: Resolve latest commit on target
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
+        run: bash scripts/check_new_commit.sh
+
+      - name: Skip when no new commit
+        if: steps.latest.outputs.changed != 'true'
+        run: echo "No new commits since ${{ steps.latest.outputs.sha }}; nothing to do."
+
+      - name: Checkout target repo
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPO }}
+          ref: ${{ steps.latest.outputs.sha }}
+          path: target
+          persist-credentials: false
+
+      - name: Setup Node
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Checkout mizchi/similarity
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: mizchi/similarity
+          path: similarity
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        if: steps.latest.outputs.changed == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build for similarity
+        if: steps.latest.outputs.changed == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: similarity
+          key: similarity-ts
+
+      - name: Build & install similarity-ts / similarity-rs from source
+        if: steps.latest.outputs.changed == 'true'
+        # Re-NNDD has both a SvelteKit frontend (src/) and a Tauri Rust
+        # backend (src-tauri/), so we install both binaries from the
+        # cloned mizchi/similarity workspace.
+        run: |
+          cargo install --path similarity/crates/similarity-ts --locked --force
+          cargo install --path similarity/crates/similarity-rs --locked --force
+
+      - name: Run Knip + similarity-ts
+        if: steps.latest.outputs.changed == 'true'
+        env:
+          TARGET_DIR: target
+          COMMIT_SHA: ${{ steps.latest.outputs.sha }}
+          COMMIT_SHORT: ${{ steps.latest.outputs.short_sha }}
+          COMMIT_MSG: ${{ steps.latest.outputs.message }}
+          COMMIT_AUTHOR: ${{ steps.latest.outputs.author }}
+          COMMIT_URL: ${{ steps.latest.outputs.url }}
+        run: bash scripts/run_analysis.sh
+
+      - name: Upload report as artifact
+        if: steps.latest.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ steps.latest.outputs.short_sha }}
+          path: reports/
+
+      - name: Notify Discord
+        if: steps.latest.outputs.changed == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          COMMIT_SHA: ${{ steps.latest.outputs.sha }}
+          COMMIT_SHORT: ${{ steps.latest.outputs.short_sha }}
+          COMMIT_MSG: ${{ steps.latest.outputs.message }}
+          COMMIT_AUTHOR: ${{ steps.latest.outputs.author }}
+          COMMIT_URL: ${{ steps.latest.outputs.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/notify_discord.sh
+
+      - name: Persist last seen SHA
+        # Do NOT advance state when a specific SHA was supplied via
+        # workflow_dispatch — that would rewind the cursor and cause
+        # duplicate notifications for already-processed commits.
+        if: >-
+          steps.latest.outputs.changed == 'true' &&
+          (github.event_name != 'workflow_dispatch' || github.event.inputs.sha == '')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          NEW_SHA: ${{ steps.latest.outputs.sha }}
+          SHORT_SHA: ${{ steps.latest.outputs.short_sha }}
+        run: bash scripts/persist_state.sh
