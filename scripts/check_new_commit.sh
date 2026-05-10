@@ -26,6 +26,11 @@ else
 fi
 
 commit_json=$(curl -fsSL "${auth[@]}" "$api/commits/${sha}")
+# Canonicalize: when the operator passes a branch name, tag, or short SHA
+# via workflow_dispatch, the GitHub API resolves it to the immutable
+# commit. Always use that resolved SHA downstream so reports stay
+# reproducible and short_sha is derived from a real 40-char hash.
+sha=$(jq -r '.sha' <<<"$commit_json")
 short_sha="${sha:0:7}"
 message=$(jq -r '.commit.message' <<<"$commit_json" | head -n1)
 author=$(jq -r '.commit.author.name // .author.login // "unknown"' <<<"$commit_json")

@@ -18,7 +18,15 @@ url="${COMMIT_URL:-https://github.com/}"
 run_url="${RUN_URL:-}"
 sim_count="${SIM_COUNT:-0}"
 
-# Truncate the embed description (Discord limit: 4096 chars; we keep room).
+# Discord embed description caps at 4096 chars. Long commit subjects
+# would otherwise produce HTTP 400 invalid-form-body, fail this step,
+# and (because state-persist depends on it) cause the same commit to
+# be retried on every schedule. Truncate generously.
+msg_max=240
+if (( ${#msg} > msg_max )); then
+  msg="${msg:0:msg_max}…"
+fi
+
 desc=$(printf '**%s**\nby %s\n\n[View commit](%s)' "$msg" "$author" "$url")
 if [[ -n "$run_url" ]]; then
   desc+=$'\n'"[CI run]($run_url)"
