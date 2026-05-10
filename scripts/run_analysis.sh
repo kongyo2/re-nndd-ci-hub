@@ -52,24 +52,60 @@ echo "::group::Knip"
 } > "$knip_md"
 echo "::endgroup::"
 
-# --- similarity-ts -------------------------------------------------------
+# --- similarity-ts (frontend / SvelteKit src/) ---------------------------
+# Re-NNDD's frontend lives in `src/` and uses .ts + .svelte. similarity-ts
+# does not parse .svelte, so we scope to the TS-flavored extensions.
 echo "::group::similarity-ts"
-src_dir="."
-[[ -d src ]] && src_dir="src"
+ts_dir=""
+if   [[ -d src ]]; then ts_dir="src"
+elif [[ -d packages || -d apps ]]; then ts_dir="."
+elif compgen -G "*.ts" >/dev/null || compgen -G "*.tsx" >/dev/null; then ts_dir="."
+fi
 {
   echo "## similarity-ts"
   echo
-  echo "Scanned: \`$src_dir\` (threshold 0.85, min-lines 5)"
-  echo
-  echo '```'
-  similarity-ts "$src_dir" \
-    --threshold 0.85 \
-    --min-lines 5 \
-    --extensions ts,tsx,js,jsx \
-    2>&1 \
-    || echo "(similarity-ts failed)"
-  echo '```'
+  if [[ -z "$ts_dir" ]]; then
+    echo "_No TypeScript sources detected; skipping._"
+  else
+    echo "Scanned: \`$ts_dir\` (threshold 0.85, min-lines 5, extensions ts,tsx,mts,cts)"
+    echo
+    echo '```'
+    similarity-ts "$ts_dir" \
+      --threshold 0.85 \
+      --min-lines 5 \
+      --extensions ts,tsx,mts,cts \
+      2>&1 \
+      || echo "(similarity-ts failed)"
+    echo '```'
+  fi
 } > "$sim_md"
+echo "::endgroup::"
+
+# --- similarity-rs (Tauri backend / src-tauri/) --------------------------
+sim_rs_md="$abs_reports/similarity-rs.md"
+echo "::group::similarity-rs"
+rs_dir=""
+if   [[ -d src-tauri/src ]]; then rs_dir="src-tauri/src"
+elif [[ -d src-tauri ]];     then rs_dir="src-tauri"
+elif [[ -f Cargo.toml && -d src ]]; then rs_dir="src"
+fi
+{
+  echo "## similarity-rs"
+  echo
+  if [[ -z "$rs_dir" ]]; then
+    echo "_No Rust sources detected; skipping._"
+  else
+    echo "Scanned: \`$rs_dir\` (threshold 0.85, min-lines 5)"
+    echo
+    echo '```'
+    similarity-rs "$rs_dir" \
+      --threshold 0.85 \
+      --min-lines 5 \
+      2>&1 \
+      || echo "(similarity-rs failed)"
+    echo '```'
+  fi
+} > "$sim_rs_md"
 echo "::endgroup::"
 
 popd >/dev/null
@@ -85,15 +121,20 @@ popd >/dev/null
   cat "$knip_md"
   echo
   cat "$sim_md"
+  echo
+  cat "$sim_rs_md"
 } > "$report_md"
 
 # --- Quick counts for Discord embed --------------------------------------
-sim_count=$(grep -c -E '^[[:space:]]*Similarity:' "$sim_md" || true)
+sim_ts_count=$(grep -c -E '^[[:space:]]*Similarity:' "$sim_md"    || true)
+sim_rs_count=$(grep -c -E '^[[:space:]]*Similarity:' "$sim_rs_md" || true)
 knip_unused=$(grep -cE '^\| ' "$knip_md" || true)   # rough: count table rows
 {
   echo "REPORT_FILE=$report_md"
-  echo "SIM_COUNT=$sim_count"
+  echo "SIM_TS_COUNT=$sim_ts_count"
+  echo "SIM_RS_COUNT=$sim_rs_count"
+  echo "SIM_COUNT=$((sim_ts_count + sim_rs_count))"
   echo "KNIP_ROWS=$knip_unused"
 } >>"$GITHUB_ENV"
 
-echo "report written to $report_md (similarity hits=$sim_count, knip table rows=$knip_unused)"
+echo "report written to $report_md (similarity-ts=$sim_ts_count, similarity-rs=$sim_rs_count, knip rows=$knip_unused)"

@@ -38,12 +38,15 @@
 - **Knip**: `npx --yes knip --reporter markdown --no-progress --no-exit-code`
   ([CI ガイド](https://knip.dev/guides/using-knip-in-ci) 準拠)。設定が無い
   リポジトリでも動くよう `--no-exit-code` で常に成果物を得ます。
-- **similarity-ts**: 上流の [`mizchi/similarity`](https://github.com/mizchi/similarity)
-  を `actions/checkout` で `similarity/` 配下にクローンし、
-  `cargo install --path similarity/crates/similarity-ts --locked --force`
-  でソースからビルドします (`Swatinem/rust-cache@v2` で `target/` を
-  キャッシュ)。`src/` があればそこ、無ければリポジトリ全体を
-  `--threshold 0.85 --min-lines 5 --extensions ts,tsx,js,jsx` でスキャン。
+- **similarity-ts / similarity-rs**: 上流の
+  [`mizchi/similarity`](https://github.com/mizchi/similarity) を
+  `actions/checkout` で `similarity/` 配下にクローンし、
+  `cargo install --path similarity/crates/similarity-{ts,rs}` でソースから
+  ビルドします (`Swatinem/rust-cache@v2` で `target/` をキャッシュ)。
+  Re-NNDD は Tauri 2 + SvelteKit 構成なので、フロントの `src/` を
+  `similarity-ts --extensions ts,tsx,mts,cts` (Svelte は非対応)、
+  Rust バックエンドの `src-tauri/src/` を `similarity-rs` でそれぞれ
+  解析します (どちらも `--threshold 0.85 --min-lines 5`)。
 - 結果は `reports/report.md` にまとめ、Actions のアーティファクトと
   Discord 添付ファイルの両方に出します。
 

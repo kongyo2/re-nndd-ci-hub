@@ -85,9 +85,14 @@ jobs:
           workspaces: similarity
           key: similarity-ts
 
-      - name: Build & install similarity-ts from source
+      - name: Build & install similarity-ts / similarity-rs from source
         if: steps.latest.outputs.changed == 'true'
-        run: cargo install --path similarity/crates/similarity-ts --locked --force
+        # Re-NNDD has both a SvelteKit frontend (src/) and a Tauri Rust
+        # backend (src-tauri/), so we install both binaries from the
+        # cloned mizchi/similarity workspace.
+        run: |
+          cargo install --path similarity/crates/similarity-ts --locked --force
+          cargo install --path similarity/crates/similarity-rs --locked --force
 
       - name: Run Knip + similarity-ts
         if: steps.latest.outputs.changed == 'true'
